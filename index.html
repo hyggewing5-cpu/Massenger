@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<script src="config.js"></script>
 <style>
 :root{padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
 body{margin:0;font:14px system-ui,-apple-system,"Segoe UI",sans-serif}
@@ -223,6 +224,30 @@ textarea{min-height:64px;resize:vertical}
 .key{font:inherit;font-size:24px;font-weight:500;height:62px;border-radius:12px;border:1px solid var(--line-strong);background:var(--surface-2);color:var(--ink);cursor:pointer;font-variant-numeric:tabular-nums}
 .key:active{background:var(--accent-soft)}
 .key.fn{font-size:15px;color:var(--ink-2)}
+.tmapwrap{position:relative}
+.tmap{height:clamp(260px,46vh,460px);border-radius:10px;border:1px solid var(--line);background:var(--map-bg);overflow:hidden}
+.tmap svg{display:block;width:100%;height:100%}
+.tmap-empty{height:100%;display:flex;align-items:center;justify-content:center;padding:24px;text-align:center;color:var(--ink-2);font-size:14px}
+.t-grid{stroke:var(--map-edge);stroke-width:1}
+.t-line{fill:none;stroke:var(--accent);stroke-width:5;stroke-linecap:round;stroke-linejoin:round}
+.t-start{fill:var(--good-f);stroke:var(--surface);stroke-width:3}
+.t-end{fill:var(--bad-f);stroke:var(--surface);stroke-width:3}
+.t-cur{fill:#1a73e8;stroke:#fff;stroke-width:3}
+.t-ring{fill:none;stroke:#1a73e8;stroke-width:2;opacity:.35}
+.t-cap{fill:var(--ink-2);font-size:11px;font-family:var(--font)}
+.tstats{position:absolute;left:8px;right:8px;top:8px;display:flex;gap:6px;pointer-events:none}
+.tstats>div{flex:1 1 0;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:6px 10px;display:flex;flex-direction:column;opacity:.96}
+.tstats small{font-size:11px;color:var(--ink-2);line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.tstats b{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1.25}
+.tfollow{position:absolute;left:8px;bottom:8px;min-height:38px}
+.bigbtn{width:100%;min-height:58px;font-size:18px}
+.btn.danger{background:var(--bad-f);border-color:var(--bad-f);color:#fff}
+.btn.danger:hover{filter:brightness(1.07);background:var(--bad-f)}
+.btn.linkish{border:0;background:none;color:var(--accent-ink);text-decoration:underline;min-height:36px;font-weight:500;width:100%}
+.btn.linkish:hover{background:none}
+a.btn{text-decoration:none;color:var(--ink)}
+button.chip{border:0;font:inherit;font-size:12px;font-weight:500;cursor:pointer}
+.trip-chip{background:var(--good-bg);color:var(--good)}
 body.live .demo-only{display:none!important}
 .whobox{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
 .who-name{font-size:14px;font-weight:500}
@@ -291,10 +316,11 @@ body.live .demo-only{display:none!important}
         <p>ยานพาหนะแมสเซ็นเจอร์<span class="demo-only"> · ต้นแบบหน้าจอ</span></p>
       </div>
     </div>
-    <div class="whobox"><span class="chip demo-only">ข้อมูลในหน้านี้เป็นตัวอย่าง</span><span id="who-name" class="who-name"></span><button class="btn" type="button" id="btn-logout" hidden>ออกจากระบบ</button></div>
+    <div class="whobox"><span class="chip demo-only">ข้อมูลในหน้านี้เป็นตัวอย่าง</span><button type="button" class="chip trip-chip" id="trip-chip" hidden></button><span id="who-name" class="who-name"></span><button class="btn" type="button" id="btn-logout" hidden>ออกจากระบบ</button></div>
   </header>
 
   <nav class="tabs" aria-label="เมนูหลัก">
+    <a class="tab" data-v="trip" href="#trip">ปฏิบัติงาน</a>
     <a class="tab" data-v="dashboard" href="#dashboard">แดชบอร์ด</a>
     <a class="tab" data-v="log" href="#log">บันทึกการเติม</a>
     <a class="tab" data-v="map" href="#map">แผนที่</a>
@@ -450,6 +476,73 @@ body.live .demo-only{display:none!important}
       </div>
     </section>
 
+    <!-- ปฏิบัติงาน -->
+    <section id="view-trip" class="view" hidden>
+      <div class="view-head">
+        <div><h2>ปฏิบัติงาน</h2><p class="muted">กดเริ่มงานเมื่อออกเดินทาง ระบบบันทึกเส้นทางและระยะทางให้อัตโนมัติ กดจบงานเมื่อถึงที่หมาย</p></div>
+        <span class="chip" id="t-gps">GPS: ยังไม่เริ่ม</span>
+      </div>
+      <div class="tmapwrap">
+        <div id="tmap" class="tmap" role="img" aria-label="แผนที่เส้นทางของงาน"></div>
+        <div class="tstats" id="tstats" hidden>
+          <div><small>เวลา</small><b id="ts-time">00:00</b></div>
+          <div><small>ระยะทาง (กม.)</small><b id="ts-km">0.00</b></div>
+          <div><small>ความเร็ว (กม./ชม.)</small><b id="ts-spd">0</b></div>
+        </div>
+        <button class="btn tfollow" id="t-follow" type="button" hidden>ตามตำแหน่งของฉัน</button>
+      </div>
+      <div class="msg" id="t-note" hidden></div>
+      <div class="msg" id="t-view" hidden><span id="t-view-txt"></span> <button class="btn" id="t-view-close" type="button">ปิด</button></div>
+
+      <div class="panel" id="t-idle">
+        <h3>เริ่มงานใหม่</h3>
+        <div class="fields">
+          <div class="field"><label for="t-veh">ยานพาหนะ</label><select id="t-veh"></select></div>
+          <div class="field"><label for="t-odo">เลขไมล์ตอนเริ่ม (กม.)</label><input id="t-odo" type="number" min="0" step="1" inputmode="numeric"></div>
+          <div class="field full"><label for="t-dest">ปลายทาง (ไม่บังคับ)</label><input id="t-dest" type="text" maxlength="120" placeholder="เช่น ไปรษณีย์ เขตดุสิต หรือชื่อหน่วยงาน"></div>
+        </div>
+        <div class="err" id="t-err" role="alert"></div>
+        <button class="btn primary bigbtn" id="t-start" type="button">เริ่มงาน</button>
+        <button class="btn linkish" id="t-nogps" type="button">เริ่มโดยไม่ใช้ GPS (ใช้เลขไมล์อย่างเดียว)</button>
+        <p class="hint">เบราว์เซอร์จะขออนุญาตใช้ตำแหน่ง กด "อนุญาต" ระหว่างวิ่งให้เปิดหน้านี้ค้างไว้ ถ้าปิดหน้าจอหรือสลับแอปนาน ตำแหน่งจะขาดช่วงและระยะทางอาจต่ำกว่าจริง</p>
+      </div>
+
+      <div class="panel" id="t-run" hidden>
+        <div class="panel-head"><h3>กำลังปฏิบัติงาน</h3><span class="pill good">กำลังวิ่ง</span></div>
+        <div>
+          <div class="kv"><span>ยานพาหนะ</span><span id="tr-veh">–</span></div>
+          <div class="kv"><span>เริ่มเมื่อ</span><span id="tr-since">–</span></div>
+          <div class="kv"><span>ปลายทาง</span><span id="tr-dest">–</span></div>
+        </div>
+        <div class="msg" id="tr-partial" hidden>งานนี้เปิดค้างไว้และไม่มีข้อมูลตำแหน่งในเครื่องนี้ ระบบจะเริ่มนับระยะทางใหม่จากตอนนี้ ตอนจบงานตรวจเลขไมล์อีกครั้ง</div>
+        <a class="btn" id="t-nav" href="#" target="_blank" rel="noopener" hidden>นำทางด้วย Google Maps</a>
+        <button class="btn danger bigbtn" id="t-finish" type="button">จบงาน</button>
+        <button class="btn linkish" id="t-cancel" type="button">ยกเลิกงานนี้</button>
+      </div>
+
+      <div class="panel" id="t-fin" hidden>
+        <h3>สรุปงานก่อนส่งข้อมูล</h3>
+        <div>
+          <div class="kv"><span>ระยะทางจาก GPS</span><span id="tf-km">–</span></div>
+          <div class="kv"><span>ใช้เวลา</span><span id="tf-dur">–</span></div>
+          <div class="kv"><span>น้ำมันโดยประมาณ</span><span id="tf-est">–</span></div>
+        </div>
+        <div class="fields">
+          <div class="field"><label for="tf-odo">เลขไมล์ตอนจบ (กม.)</label><input id="tf-odo" type="number" min="0" step="1" inputmode="numeric"><span class="hint" id="tf-hint"></span></div>
+          <div class="field"><label for="tf-note">หมายเหตุ</label><input id="tf-note" type="text" maxlength="200" placeholder="ไม่บังคับ"></div>
+        </div>
+        <div class="msg" id="tf-warn" hidden></div>
+        <div class="err" id="tf-err" role="alert"></div>
+        <button class="btn primary bigbtn" id="tf-send" type="button">ส่งข้อมูลเข้าระบบ</button>
+        <button class="btn linkish" id="tf-back" type="button">กลับไปวิ่งต่อ</button>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel"><h3>งานวันนี้ของทุกคน</h3><div class="vlist" id="t-hist"></div><p class="hint">กดที่รายการเพื่อดูเส้นทางบนแผนที่</p></div>
+        <div class="panel"><h3>สรุปจากงานที่บันทึกด้วย GPS</h3><div id="t-tot"></div><p class="hint">น้ำมันโดยประมาณคำนวณจากระยะทาง ÷ อัตราสิ้นเปลืองมาตรฐานของรถ ไม่ใช่ปริมาณที่เติมจริง ปริมาณจริงดูจากแท็บบันทึกการเติม</p></div>
+      </div>
+    </section>
+
     <!-- ติดตามยานพาหนะ -->
     <section id="view-map" class="view" hidden>
       <div class="view-head"><div><h2>ติดตามยานพาหนะ</h2><p class="muted">ตำแหน่งและสถานะรถแต่ละคัน แบบเดียวกับแอปเรียกรถ</p></div><span class="chip">ตำแหน่งจำลอง ไม่ใช่ข้อมูล GPS จริง</span></div>
@@ -596,9 +689,11 @@ var esc=function(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':
 var TODAY=new Date();TODAY.setHours(0,0,0,0);
 
 /* ---------- ตั้งค่า ----------
-   API_URL: วางลิงก์ Web App ของ Apps Script (ลงท้าย /exec) เพื่อใช้ข้อมูลจริงจาก Google Sheets
-   เว้นว่างไว้ = โหมดสาธิต ใช้ข้อมูลตัวอย่างและเก็บในเบราว์เซอร์เครื่องนี้ */
-var API_URL='https://script.google.com/macros/s/AKfycbwSpZpTiwX8byW31MCg7LlXIa4CIl5iqeZzPEVgpM_eudRSH0ssyIX2CGYjO63wUR9C/exec';
+   ค่า API_URL (ลิงก์ Web App ของ Apps Script) และ MAPS_KEY (คีย์ Google Maps) ตั้งในไฟล์ config.js
+   ไม่ตั้ง API_URL = โหมดสาธิต ใช้ข้อมูลตัวอย่างและเก็บในเบราว์เซอร์เครื่องนี้
+   ไม่ตั้ง MAPS_KEY = หน้าปฏิบัติงานแสดงแผนภาพเส้นทางแทนแผนที่ Google */
+var API_URL=(window.FUELLOG_CONFIG&&window.FUELLOG_CONFIG.API_URL)||'';
+var MAPS_KEY=(window.FUELLOG_CONFIG&&window.FUELLOG_CONFIG.MAPS_KEY)||'';
 var LIVE=!!API_URL;
 var MAP_DEMO=!LIVE;
 var token=null,DRIVER_NAMES=[];
@@ -893,11 +988,12 @@ function renderVehicles(){
 
 /* ---------- จัดการยานพาหนะ ---------- */
 var editId=null,delT=null;
-function vOptions(){return vList().map(function(v){return '<option value="'+v.id+'">'+esc(v.name)+' · '+esc(v.plate)+'</option>'}).join('')}
+function vOptions(){return vList().map(function(v){return '<option value="'+v.id+'">'+esc(v.name)+(v.plate?' · '+esc(v.plate):'')+'</option>'}).join('')}
 function fillVehicleSelects(){
   var a=$('#f-vehicle'),b=$('#rep-veh'),av=a.value,bv=b.value;
   a.innerHTML=vOptions();b.innerHTML='<option value="all">ทุกคัน</option>'+vOptions();
   a.value=vById(av)?av:mainVehicle().id;b.value=(bv==='all'||vById(bv))?bv:'all';
+  var tv=$('#t-veh');if(tv){var tcur=tv.value;tv.innerHTML=vOptions();tv.value=vById(tcur)?tcur:mainVehicle().id}
 }
 function clearVehForm(){
   editId=null;$('#vf-name').value='';$('#vf-plate').value='';$('#vf-type').selectedIndex=0;$('#vf-fuel').selectedIndex=0;
@@ -1012,7 +1108,7 @@ try{var su=JSON.parse(localStorage.getItem(USTORE)||'null');if(Array.isArray(su)
 if(LIVE)USERS=[];
 function saveUsers(){try{localStorage.setItem(USTORE,JSON.stringify(USERS))}catch(e){}}
 var me=null,pin='',fails=0,lockUntil=0,busy=false,booted=false;
-var ALLOWED={sup:['dashboard','log','map','vehicles','reports','users','system'],staff:['dashboard','log','map','vehicles','reports']};
+var ALLOWED={sup:['trip','dashboard','log','map','vehicles','reports','users','system'],staff:['trip','dashboard','log','map','vehicles','reports']};
 if(!MAP_DEMO){Object.keys(ALLOWED).forEach(function(r){ALLOWED[r]=ALLOWED[r].filter(function(v){return v!=='map'})})}
 function isSup(){return !!me&&me.role==='sup'}
 function drawDots(){$$('#dots i').forEach(function(d,i){d.classList.toggle('on',i<pin.length)})}
@@ -1027,7 +1123,7 @@ function pressKey(k){
 function loadData(){
   return api('data').then(function(res){
     VEHICLES=res.vehicles;DRIVER_NAMES=res.drivers;USERS=res.users||[];
-    entries=res.logs;sortEntries();dropOrphans();
+    entries=res.logs;sortEntries();dropOrphans();TRIPS=res.trips||[];
     return res;
   });
 }
@@ -1060,7 +1156,7 @@ function fillDrivers(){
 }
 function bootApp(){
   if(booted)return;booted=true;
-  initForm();initVehForm();initReports();initUsers();initMap();
+  initForm();initVehForm();initReports();initUsers();initMap();initTrip();
 }
 function login(u){
   me=u;if(!LIVE){try{sessionStorage.setItem(SESS,u.id)}catch(e){}}
@@ -1068,16 +1164,17 @@ function login(u){
   $('#who-name').textContent=u.name+' · '+(u.role==='sup'?'หัวหน้างาน':'ลูกน้อง');$('#btn-logout').hidden=false;
   $$('.tab').forEach(function(a){a.hidden=ALLOWED[u.role].indexOf(a.dataset.v)<0});
   $('#veh-form').hidden=u.role!=='sup';
-  bootApp();fillVehicleSelects();fillDrivers();resetForm();route();
+  bootApp();fillVehicleSelects();fillDrivers();resetForm();resumeTrip();route();
 }
 function showGate(){
-  stopMap();me=null;pin='';drawDots();
-  if(LIVE){VEHICLES=[];entries=[];USERS=[];DRIVER_NAMES=[]}
+  pauseTracking();stopMap();me=null;pin='';drawDots();
+  if(LIVE){VEHICLES=[];entries=[];USERS=[];DRIVER_NAMES=[];TRIPS=[]}
   $('#gate-err').textContent='';$('#app').hidden=true;$('#gate').hidden=false;$('#btn-logout').hidden=true;$('#who-name').textContent='';
 }
 function clearSession(){token=null;try{sessionStorage.removeItem(TKEY);sessionStorage.removeItem(SESS)}catch(e){}}
 function forceLogout(msg){clearSession();showGate();$('#gate-err').textContent=msg||''}
 function logout(){
+  if(TR.active){toast('จบงานหรือยกเลิกงานก่อนออกจากระบบ');return}
   if(LIVE&&token){api('logout').catch(function(){})}
   clearSession();showGate();
 }
@@ -1238,12 +1335,363 @@ function initMap(){
   $('#mapbox').addEventListener('click',function(e){var g=e.target.closest('.veh');if(g)pickVeh(+g.dataset.i)});
 }
 
+/* ---------- ปฏิบัติงาน (เริ่มงาน / จบงาน, GPS และแผนที่) ---------- */
+var TRIPS=[],TSTORE='fuellog.trips.v1',TRKEY='fuellog.trip.v1';
+var SIM=!LIVE||/[?&]sim=1/.test(location.search);
+var SIMC={lat:13.7563,lng:100.5018,h:.6};
+function blankTR(){return {active:false,finishing:false,id:null,vehicleId:null,userId:null,startedAt:0,startLL:null,odo0:0,dest:'',pts:[],km:0,gaps:0,last:null,cur:null,acc:null,spd:0,watch:null,timer:null,sim:null,wl:null,partial:false,nogps:false}}
+var TR=blankTR();
+var TM={g:false,map:null,line:null,mk:{},follow:true,tried:false,viewing:null};
+if(!LIVE){
+  try{var stt=JSON.parse(localStorage.getItem(TSTORE)||'null');if(Array.isArray(stt))TRIPS=stt}catch(e){}
+  if(!TRIPS.length){
+    var sb0=TODAY.getTime(),sh0=3600000;
+    TRIPS=[['v2','สมชาย',8.2,8.9,12.4],['v1','วิชัย',9.3,10.1,18.9],['v2','ประยูร',10.5,11.2,9.6]].map(function(r,i){
+      var sv=vById(r[0]);
+      return {id:i+1,vehicleId:r[0],driver:r[1],userId:'seed',start:sb0+r[2]*sh0,end:sb0+r[3]*sh0,startLat:null,startLng:null,endLat:null,endLng:null,km:r[4],odoStart:1000+i*100,odoEnd:1000+i*100+Math.round(r[4]),estL:Math.round(r[4]/(sv?sv.std:40)*100)/100,points:0,gaps:0,dest:'',note:'',status:'done',route:''};
+    });
+  }
+}
+function saveLocalTrips(){if(!LIVE){try{localStorage.setItem(TSTORE,JSON.stringify(TRIPS))}catch(e){}}}
+function upsertTrip(t){
+  var i=-1;TRIPS.forEach(function(x,k){if(x.id===t.id)i=k});
+  if(t.status==='cancelled'){if(i>=0)TRIPS.splice(i,1)}
+  else if(i>=0)TRIPS[i]=Object.assign(TRIPS[i],t);
+  else TRIPS.push(t);
+  saveLocalTrips();
+}
+function tripStartOdo(id){var m=lastOdo(id);TRIPS.forEach(function(t){if(t.vehicleId===id&&t.status==='done'&&t.odoEnd>m)m=t.odoEnd});return m}
+
+/* โหมดสาธิตจำลองฝั่งเซิร์ฟเวอร์ในเบราว์เซอร์ */
+function tripCall(action,p){
+  if(LIVE)return api(action,p);
+  return new Promise(function(res,rej){try{res(localTrip(action,p))}catch(e){rej(e)}});
+}
+function localTrip(action,p){
+  var t=p.trip||{};
+  if(action==='startTrip'){
+    if(TRIPS.some(function(x){return x.status==='open'&&x.userId===me.id}))throw new Error('คุณมีงานที่ยังไม่จบอยู่แล้ว');
+    var bz=TRIPS.filter(function(x){return x.status==='open'&&x.vehicleId===t.vehicleId})[0];
+    if(bz)throw new Error('รถคันนี้มีงานที่ยังไม่จบ (ผู้ขับ '+bz.driver+')');
+    var id=1;TRIPS.forEach(function(x){id=Math.max(id,x.id+1)});
+    return {trip:{id:id,vehicleId:t.vehicleId,driver:me.name,userId:me.id,start:Date.now(),end:null,startLat:t.lat,startLng:t.lng,endLat:null,endLng:null,km:null,odoStart:t.odoStart,odoEnd:null,estL:null,points:0,gaps:0,dest:t.dest||'',note:'',status:'open',route:''}};
+  }
+  var row=TRIPS.filter(function(x){return x.id===(t.id!=null?t.id:p.id)})[0];
+  if(action==='finishTrip'){
+    if(!row||row.status!=='open')throw new Error('ไม่พบงานที่กำลังทำอยู่นี้');
+    var v=vById(row.vehicleId),used=t.gpsKm>0?t.gpsKm:(t.odoEnd-row.odoStart);
+    return {trip:Object.assign({},row,{end:Date.now(),endLat:t.lat,endLng:t.lng,km:t.gpsKm,odoEnd:t.odoEnd,estL:v?Math.round(used/v.std*100)/100:0,points:t.points,gaps:t.gaps,note:t.note||'',route:t.route||'',status:'done'})};
+  }
+  if(action==='tripRoute')return {route:row?(row.route||''):''};
+  return {};
+}
+
+/* คำนวณและเข้ารหัสเส้นทาง */
+function hav(a,b){var r=Math.PI/180,R=6371000,dLa=(b.lat-a.lat)*r,dLo=(b.lng-a.lng)*r,x=Math.sin(dLa/2)*Math.sin(dLa/2)+Math.cos(a.lat*r)*Math.cos(b.lat*r)*Math.sin(dLo/2)*Math.sin(dLo/2);return 2*R*Math.asin(Math.sqrt(x))}
+function encN(n){n=n<0?~(n<<1):(n<<1);var o='';while(n>=0x20){o+=String.fromCharCode((0x20|(n&0x1f))+63);n>>=5}return o+String.fromCharCode(n+63)}
+function encPoly(pts){var o='',pl=0,pg=0;pts.forEach(function(p){var la=Math.round(p[0]*1e5),lo=Math.round(p[1]*1e5);o+=encN(la-pl)+encN(lo-pg);pl=la;pg=lo});return o}
+function decPoly(str){var pts=[],i=0,la=0,lo=0;while(i<str.length){var r=0,sh=0,b;do{b=str.charCodeAt(i++)-63;r|=(b&0x1f)<<sh;sh+=5}while(b>=0x20&&i<=str.length);la+=(r&1)?~(r>>1):(r>>1);r=0;sh=0;do{b=str.charCodeAt(i++)-63;r|=(b&0x1f)<<sh;sh+=5}while(b>=0x20&&i<=str.length);lo+=(r&1)?~(r>>1):(r>>1);pts.push([la/1e5,lo/1e5])}return pts}
+function decimate(pts,max){if(pts.length<=max)return pts;var k=Math.ceil(pts.length/max),o=[];for(var i=0;i<pts.length;i+=k)o.push(pts[i]);if(o[o.length-1]!==pts[pts.length-1])o.push(pts[pts.length-1]);return o}
+function fmtDur(ms){var s=Math.max(0,Math.floor(ms/1000)),h=Math.floor(s/3600),m=Math.floor(s%3600/60),x=s%60;return (h?h+':'+pad(m):pad(m))+':'+pad(x)}
+function fmtTime(ms){return new Date(ms).toLocaleTimeString('th-TH',{hour:'2-digit',minute:'2-digit'})}
+function cssVar(n,d){return getComputedStyle(document.documentElement).getPropertyValue(n).trim()||d}
+
+/* แผนที่ */
+function mapNote(t){var n=$('#t-note');n.textContent=t;n.hidden=!t}
+function initTripMap(){
+  if(TM.tried){mapResize();drawTrip();return}
+  TM.tried=true;
+  if(!MAPS_KEY){drawTrip();return}
+  window.__gmReady=function(){buildGoogle();drawTrip()};
+  window.gm_authFailure=function(){TM.g=false;TM.map=null;TM.mk={};mapNote('Google Maps ไม่รับคีย์นี้ ตรวจว่าเปิดใช้ Maps JavaScript API และตั้งโดเมนที่อนุญาตตรงกับเว็บนี้ ตอนนี้แสดงแผนภาพเส้นทางแทน');drawTrip()};
+  var sc=document.createElement('script');
+  sc.src='https://maps.googleapis.com/maps/api/js?key='+encodeURIComponent(MAPS_KEY)+'&callback=__gmReady&v=weekly';
+  sc.async=true;
+  sc.onerror=function(){mapNote('โหลด Google Maps ไม่ได้ ตอนนี้แสดงแผนภาพเส้นทางแทน');drawTrip()};
+  document.head.appendChild(sc);
+  drawTrip();
+}
+function buildGoogle(){
+  var box=$('#tmap'),c=TR.cur||TR.startLL||SIMC;box.innerHTML='';
+  TM.map=new google.maps.Map(box,{center:{lat:c.lat,lng:c.lng},zoom:16,disableDefaultUI:true,zoomControl:true,gestureHandling:'greedy',clickableIcons:false});
+  TM.line=new google.maps.Polyline({map:TM.map,path:[],strokeColor:cssVar('--accent','#0B6E8A'),strokeOpacity:.95,strokeWeight:5});
+  TM.map.addListener('dragstart',function(){TM.follow=false;$('#t-follow').hidden=false});
+  TM.mk={};TM.g=true;
+}
+function mapResize(){if(TM.g&&TM.map)google.maps.event.trigger(TM.map,'resize')}
+function setMk(k,pos,color,sc){
+  if(!pos){if(TM.mk[k]){TM.mk[k].setMap(null);TM.mk[k]=null}return}
+  var ll={lat:pos.lat,lng:pos.lng};
+  if(!TM.mk[k])TM.mk[k]=new google.maps.Marker({map:TM.map,position:ll,icon:{path:google.maps.SymbolPath.CIRCLE,scale:sc,fillColor:color,fillOpacity:1,strokeColor:'#ffffff',strokeWeight:2}});
+  else TM.mk[k].setPosition(ll);
+}
+function drawGoogle(pts,cur,start,end){
+  var path=pts.map(function(p){return {lat:p[0],lng:p[1]}});
+  TM.line.setPath(path);
+  setMk('cur',cur,'#1a73e8',9);setMk('start',start,'#1B7F52',7);setMk('end',end,'#B3261E',7);
+  if(TM.viewing&&path.length){var b=new google.maps.LatLngBounds();path.forEach(function(p){b.extend(p)});TM.map.fitBounds(b,40)}
+  else if(cur&&TM.follow)TM.map.panTo({lat:cur.lat,lng:cur.lng});
+}
+function drawSvg(pts,cur,start,end){
+  var box=$('#tmap'),all=pts.map(function(p){return {lat:p[0],lng:p[1]}});
+  [cur,start,end].forEach(function(p){if(p)all.push(p)});
+  if(!all.length){box.innerHTML='<div class="tmap-empty">'+(MAPS_KEY?'กำลังโหลดแผนที่…':'ยังไม่มีแผนที่พื้นหลัง (ยังไม่ได้ใส่คีย์ Google Maps) ระบบยังบันทึกเส้นทางและระยะทางตามปกติ')+'</div>';return}
+  var kx=Math.cos(all[0].lat*Math.PI/180),W=600,H=360,pd=36;
+  var P=function(p){return {x:p.lng*kx*111320,y:-p.lat*110540}},q=all.map(P);
+  var xs=q.map(function(a){return a.x}),ys=q.map(function(a){return a.y});
+  var minX=Math.min.apply(null,xs),maxX=Math.max.apply(null,xs),minY=Math.min.apply(null,ys),maxY=Math.max.apply(null,ys);
+  var sx=Math.max(maxX-minX,300),sy=Math.max(maxY-minY,300),sc=Math.min((W-2*pd)/sx,(H-2*pd)/sy),cx=(minX+maxX)/2,cy=(minY+maxY)/2;
+  var T=function(p){var a=P(p);return [(W/2+(a.x-cx)*sc).toFixed(1),(H/2+(a.y-cy)*sc).toFixed(1)]};
+  var s='<svg viewBox="0 0 '+W+' '+H+'" preserveAspectRatio="xMidYMid meet" aria-hidden="true">';
+  for(var gx=1;gx<6;gx++)s+='<line class="t-grid" x1="'+(W/6*gx)+'" y1="0" x2="'+(W/6*gx)+'" y2="'+H+'"/>';
+  for(var gy=1;gy<4;gy++)s+='<line class="t-grid" x1="0" y1="'+(H/4*gy)+'" x2="'+W+'" y2="'+(H/4*gy)+'"/>';
+  if(pts.length>1)s+='<polyline class="t-line" points="'+pts.map(function(p){return T({lat:p[0],lng:p[1]}).join(',')}).join(' ')+'"/>';
+  if(start){var a=T(start);s+='<circle class="t-start" cx="'+a[0]+'" cy="'+a[1]+'" r="8"/>'}
+  if(end){var b=T(end);s+='<circle class="t-end" cx="'+b[0]+'" cy="'+b[1]+'" r="8"/>'}
+  if(cur){var c=T(cur);s+='<circle class="t-ring" cx="'+c[0]+'" cy="'+c[1]+'" r="16"/><circle class="t-cur" cx="'+c[0]+'" cy="'+c[1]+'" r="8"/>'}
+  s+='<text class="t-cap" x="10" y="'+(H-10)+'">แผนภาพเส้นทาง (ไม่มีแผนที่พื้นหลัง) · ช่องตารางไม่ใช่มาตราส่วนคงที่</text></svg>';
+  box.innerHTML=s;
+}
+function drawTrip(){
+  if(!$('#tmap'))return;
+  var v=TM.viewing,pts=v?v.pts:TR.pts,cur=v?null:TR.cur,start=v?v.start:(TR.active?TR.startLL:null),end=v?v.end:null;
+  if(TM.g&&TM.map)drawGoogle(pts,cur,start,end);else drawSvg(pts,cur,start,end);
+}
+
+/* GPS */
+function setGps(t){$('#t-gps').textContent='GPS: '+t}
+function geoMsg(e){
+  if(e&&e.code===1)return 'ไม่ได้รับอนุญาตให้ใช้ตำแหน่ง เปิดสิทธิ์ตำแหน่งของเว็บนี้ในการตั้งค่าเบราว์เซอร์แล้วลองใหม่';
+  if(e&&e.code===3)return 'หาตำแหน่งนานเกินไป ออกไปที่โล่งแล้วลองใหม่';
+  return 'หาตำแหน่งไม่ได้ ตรวจว่าเปิด GPS ของเครื่องแล้ว';
+}
+function getFix(cb){
+  if(SIM){cb({lat:SIMC.lat,lng:SIMC.lng,acc:8});return}
+  if(!navigator.geolocation){cb(null,'เครื่องนี้ไม่รองรับ GPS');return}
+  navigator.geolocation.getCurrentPosition(function(p){cb({lat:p.coords.latitude,lng:p.coords.longitude,acc:p.coords.accuracy})},function(e){cb(null,geoMsg(e))},{enableHighAccuracy:true,timeout:15000,maximumAge:5000});
+}
+function startSim(){
+  TR.sim=setInterval(function(){
+    SIMC.h+=(Math.random()-.5)*.25;
+    SIMC.lat+=12*Math.cos(SIMC.h)/110540;
+    SIMC.lng+=12*Math.sin(SIMC.h)/(111320*Math.cos(SIMC.lat*Math.PI/180));
+    onFix(SIMC.lat,SIMC.lng,8,Date.now(),12);
+  },1000);
+}
+function startWatch(){
+  stopWatch();
+  if(SIM){startSim();return}
+  if(!navigator.geolocation){setGps('เครื่องนี้ไม่รองรับ GPS');return}
+  TR.watch=navigator.geolocation.watchPosition(function(p){onFix(p.coords.latitude,p.coords.longitude,p.coords.accuracy||999,p.timestamp||Date.now(),p.coords.speed)},function(e){setGps(geoMsg(e))},{enableHighAccuracy:true,maximumAge:0,timeout:30000});
+}
+function stopWatch(){
+  if(TR.watch!=null&&navigator.geolocation)navigator.geolocation.clearWatch(TR.watch);
+  TR.watch=null;if(TR.sim){clearInterval(TR.sim);TR.sim=null}
+}
+function wake(on){
+  try{
+    if(on){if(navigator.wakeLock&&!TR.wl){navigator.wakeLock.request('screen').then(function(l){TR.wl=l;l.addEventListener('release',function(){if(TR.wl===l)TR.wl=null})}).catch(function(){})}}
+    else if(TR.wl){TR.wl.release();TR.wl=null}
+  }catch(e){}
+}
+function startTracking(){
+  wake(true);
+  if(!TR.nogps)startWatch();else setGps('ไม่ใช้ GPS');
+  clearInterval(TR.timer);TR.timer=setInterval(renderStats,1000);
+  renderStats();
+}
+function pauseTracking(){stopWatch();clearInterval(TR.timer);TR.timer=null;wake(false)}
+function persistTrip(){
+  if(!TR.active)return;
+  try{localStorage.setItem(TRKEY,JSON.stringify({id:TR.id,userId:TR.userId,pts:TR.pts,km:TR.km,gaps:TR.gaps,finishing:TR.finishing}))}catch(e){}
+}
+function endLocal(){
+  pauseTracking();TR=blankTR();
+  try{localStorage.removeItem(TRKEY)}catch(e){}
+  TM.viewing=null;TM.follow=true;$('#t-follow').hidden=true;setGps('ยังไม่เริ่ม');
+}
+function onFix(lat,lng,acc,t,spd){
+  TR.cur={lat:lat,lng:lng};TR.acc=acc;
+  if(TR.active&&!TR.finishing){
+    var p=TR.last,n={lat:lat,lng:lng,t:t};
+    if(acc>50){setGps('สัญญาณอ่อน ±'+Math.round(acc)+' ม. ยังไม่นับระยะทาง')}
+    else{
+      setGps('แม่นยำ ±'+Math.round(acc)+' ม.');
+      if(!p){TR.last=n;TR.pts.push([lat,lng,t])}
+      else{
+        var d=hav(p,n),dt=(t-p.t)/1000;
+        if(d>=Math.max(8,acc*.4)&&!(dt>0&&d/dt>45)){
+          if(dt>90&&d>300)TR.gaps++;
+          TR.km+=d/1000;TR.last=n;TR.pts.push([lat,lng,t]);
+          TR.spd=(spd!=null&&isFinite(spd))?spd*3.6:(dt>0?d/dt*3.6:0);
+        }else if(d<8)TR.spd=0;
+      }
+    }
+    persistTrip();
+  }
+  renderStats();drawTrip();
+}
+function renderStats(){
+  var chip=$('#trip-chip');
+  if(!TR.active){chip.hidden=true;$('#tstats').hidden=true;return}
+  var el=fmtDur(Date.now()-TR.startedAt),km=nf(TR.km,2);
+  chip.hidden=false;chip.textContent='กำลังปฏิบัติงาน '+el+(TR.nogps?'':' · '+km+' กม.');
+  $('#tstats').hidden=false;$('#ts-time').textContent=el;$('#ts-km').textContent=TR.nogps?'–':km;$('#ts-spd').textContent=TR.nogps?'–':nf(TR.spd,0);
+}
+
+/* หน้าจอ */
+function renderTrip(){
+  var idle=!TR.active,run=TR.active&&!TR.finishing,fin=TR.active&&TR.finishing;
+  $('#t-idle').hidden=!idle;$('#t-run').hidden=!run;$('#t-fin').hidden=!fin;
+  if(idle){setGps('ยังไม่เริ่ม');if(!$('#t-odo').value)setTripOdo()}
+  if(!idle){
+    var v=vById(TR.vehicleId);
+    $('#tr-veh').textContent=v?v.name+(v.plate?' · '+v.plate:''):'–';$('#tr-since').textContent=fmtTime(TR.startedAt);$('#tr-dest').textContent=TR.dest||'–';
+    var nav=$('#t-nav');
+    if(TR.dest){nav.href='https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(TR.dest)+'&travelmode=driving';nav.hidden=false}else nav.hidden=true;
+    $('#tr-partial').hidden=!TR.partial;
+  }
+  if(fin)fillFinish();
+  renderStats();renderTripLists();drawTrip();
+}
+function gpsKmToSend(){if(TR.nogps)return null;if(TR.partial&&TR.km<=0)return null;return Math.round(TR.km*100)/100}
+function fillFinish(){
+  var km=gpsKmToSend();
+  $('#tf-km').textContent=km==null?'ไม่มีข้อมูล GPS':nf(km,2)+' กม.';
+  $('#tf-dur').textContent=fmtDur(Date.now()-TR.startedAt);
+  var inp=$('#tf-odo');
+  if(inp.dataset.trip!==String(TR.id)){inp.value=km==null?'':Math.round(TR.odo0+km);inp.dataset.trip=String(TR.id);$('#tf-note').value=''}
+  $('#tf-hint').textContent='เริ่มที่ '+nf(TR.odo0)+' กม.'+(km==null?'':' · GPS ได้ '+nf(km,2)+' กม.');
+  updateFinishCalc();
+}
+function updateFinishCalc(){
+  var v=vById(TR.vehicleId),odo=parseFloat($('#tf-odo').value),km=gpsKmToSend(),msgs=[];
+  var used=(km!=null&&km>0)?km:(isFinite(odo)?odo-TR.odo0:0);
+  $('#tf-est').textContent=v&&v.std>0?'≈ '+nf(Math.max(0,used)/v.std,2)+' ลิตร (ที่ '+nf(v.std,1)+' กม./ลิตร)':'–';
+  if(isFinite(odo)&&odo<TR.odo0)msgs.push('เลขไมล์ตอนจบน้อยกว่าตอนเริ่ม');
+  if(km!=null&&isFinite(odo)&&odo>=TR.odo0){var diff=Math.abs((odo-TR.odo0)-km);if(diff>Math.max(1,km*.15))msgs.push('ระยะทางจากเลขไมล์ ('+nf(odo-TR.odo0,1)+' กม.) ต่างจาก GPS ('+nf(km,2)+' กม.) อยู่ '+nf(diff,1)+' กม. ตรวจเลขไมล์อีกครั้ง')}
+  if(TR.gaps>0)msgs.push('สัญญาณ GPS ขาดช่วง '+TR.gaps+' ครั้ง ระยะทาง GPS อาจต่ำกว่าจริง');
+  if(TR.partial&&km==null)msgs.push('งานนี้ไม่มีระยะทาง GPS ในเครื่องนี้ ใช้เลขไมล์ตอนจบแทน');
+  var w=$('#tf-warn');w.textContent=msgs.join(' · ');w.hidden=!msgs.length;
+}
+function renderTripLists(){
+  var t0=TODAY.getTime(),mine=TRIPS.filter(function(t){return vById(t.vehicleId)});
+  var today=mine.filter(function(t){return t.start>=t0}).sort(function(a,b){return b.start-a.start});
+  $('#t-hist').innerHTML=today.length?today.slice(0,20).map(function(t){
+    var v=vById(t.vehicleId),open=t.status==='open',dist=t.km!=null?t.km:(t.odoEnd!=null?t.odoEnd-t.odoStart:0);
+    return '<button type="button" class="vitem" data-id="'+t.id+'"><span class="l1"><b>'+esc(v.name)+'</b><span class="pill '+(open?'good':'idle')+'">'+(open?'กำลังวิ่ง':'จบแล้ว')+'</span></span>'+
+      '<span class="l2">'+esc(t.driver)+' · '+fmtTime(t.start)+(t.end?'–'+fmtTime(t.end):'')+'</span>'+
+      '<span class="l2">'+(open?'ยังไม่จบงาน':nf(dist,2)+' กม. · ≈ '+nf(t.estL||0,2)+' ลิตร'+(t.dest?' · '+esc(t.dest):''))+'</span></button>';
+  }).join(''):'<div class="empty">ยังไม่มีงานวันนี้ กดเริ่มงานเมื่อออกเดินทาง</div>';
+  function sum(from){var a={n:0,km:0,l:0};mine.forEach(function(t){if(t.status==='done'&&t.start>=from){a.n++;a.km+=t.km!=null?t.km:(t.odoEnd-t.odoStart);a.l+=t.estL||0}});return a}
+  $('#t-tot').innerHTML=[['วันนี้',t0],['7 วันล่าสุด',t0-6*86400000],['30 วันล่าสุด',t0-29*86400000]].map(function(r){
+    var a=sum(r[1]);return '<div class="kv"><span>'+r[0]+'</span><span>'+nf(a.n)+' งาน · '+nf(a.km,1)+' กม. · ≈ '+nf(a.l,1)+' ลิตร</span></div>';
+  }).join('');
+}
+function setTripOdo(){var v=$('#t-veh').value;if(v)$('#t-odo').value=tripStartOdo(v)}
+function showTrip(){
+  if(!$('#t-veh').options.length)fillVehicleSelects();
+  if(!TR.active)setTripOdo();
+  initTripMap();renderTrip();
+}
+function startTrip(nogps){
+  var err=$('#t-err'),vid=$('#t-veh').value,odo=parseFloat($('#t-odo').value),dest=$('#t-dest').value.trim();
+  err.textContent='';
+  if(!vid){err.textContent='เลือกยานพาหนะ';return}
+  if(!isFinite(odo)||odo<0){err.textContent='กรอกเลขไมล์เริ่มต้น';return}
+  var bz=TRIPS.filter(function(t){return t.status==='open'&&t.vehicleId===vid})[0];
+  if(bz){err.textContent='รถคันนี้มีงานที่ยังไม่จบ (ผู้ขับ '+bz.driver+')';return}
+  var b1=$('#t-start'),b2=$('#t-nogps');b1.disabled=true;b2.disabled=true;
+  function go(fix){
+    tripCall('startTrip',{trip:{vehicleId:vid,odoStart:odo,dest:dest,lat:fix?fix.lat:null,lng:fix?fix.lng:null}}).then(function(res){
+      var t=res.trip;upsertTrip(t);
+      TR=blankTR();TR.active=true;TR.id=t.id;TR.vehicleId=t.vehicleId;TR.userId=me.id;TR.startedAt=t.start;TR.odo0=t.odoStart;TR.dest=t.dest||'';
+      TR.nogps=!fix;TR.startLL=fix?{lat:fix.lat,lng:fix.lng}:null;
+      if(fix){var n=Date.now();TR.pts=[[fix.lat,fix.lng,n]];TR.last={lat:fix.lat,lng:fix.lng,t:n};TR.cur={lat:fix.lat,lng:fix.lng}}
+      TM.follow=true;TM.viewing=null;$('#t-follow').hidden=true;$('#t-view').hidden=true;$('#t-dest').value='';
+      startTracking();persistTrip();renderTrip();
+    }).catch(function(x){err.textContent=x.message}).then(function(){b1.disabled=false;b2.disabled=false});
+  }
+  if(nogps){go(null);return}
+  err.textContent='กำลังหาตำแหน่ง…';
+  getFix(function(fix,msg){
+    if(!fix){err.textContent=msg+' หรือกด "เริ่มโดยไม่ใช้ GPS"';b1.disabled=false;b2.disabled=false;return}
+    err.textContent='';go(fix);
+  });
+}
+function sendFinish(){
+  var err=$('#tf-err'),odoEnd=parseFloat($('#tf-odo').value),note=$('#tf-note').value.trim();
+  if(!isFinite(odoEnd)||odoEnd<TR.odo0){err.textContent='เลขไมล์ตอนจบต้องไม่น้อยกว่า '+nf(TR.odo0);return}
+  var end=TR.cur||TR.startLL||{},btn=$('#tf-send'),km=gpsKmToSend();
+  var route=encPoly(decimate(TR.pts,400).map(function(p){return [p[0],p[1]]}));
+  btn.disabled=true;err.textContent='';
+  tripCall('finishTrip',{trip:{id:TR.id,odoEnd:odoEnd,gpsKm:km,lat:end.lat,lng:end.lng,endTime:Date.now(),points:TR.pts.length,gaps:TR.gaps,route:route,note:(LIVE&&SIM?'[ทดสอบ] ':'')+note}})
+    .then(function(res){
+      var t=res.trip;upsertTrip(t);endLocal();$('#tf-odo').dataset.trip='';setTripOdo();
+      toast('ส่งข้อมูลแล้ว · '+nf(t.km!=null?t.km:t.odoEnd-t.odoStart,2)+' กม. · ≈ '+nf(t.estL||0,2)+' ลิตร');
+      renderTrip();
+    })
+    .catch(function(x){err.textContent=x.message+' (ข้อมูลยังอยู่ในเครื่อง กดส่งอีกครั้งเมื่อมีสัญญาณ)'})
+    .then(function(){btn.disabled=false});
+}
+var cancelT=null;
+function cancelTrip(){
+  var b=$('#t-cancel');
+  if(b.dataset.sure!=='1'){b.dataset.sure='1';b.textContent='ยืนยันยกเลิกงานนี้?';clearTimeout(cancelT);cancelT=setTimeout(function(){b.dataset.sure='';b.textContent='ยกเลิกงานนี้'},4000);return}
+  clearTimeout(cancelT);b.dataset.sure='';b.textContent='ยกเลิกงานนี้';
+  tripCall('cancelTrip',{id:TR.id}).then(function(){
+    upsertTrip({id:TR.id,status:'cancelled'});endLocal();renderTrip();toast('ยกเลิกงานแล้ว');
+  }).catch(function(x){toast(x.message)});
+}
+function viewRoute(id){
+  if(TR.active){toast('จบหรือยกเลิกงานปัจจุบันก่อน จึงจะดูเส้นทางย้อนหลังได้');return}
+  var t=TRIPS.filter(function(x){return x.id===id})[0];if(!t)return;
+  tripCall('tripRoute',{id:id}).then(function(res){
+    var pts=decPoly(res.route||'');
+    if(!pts.length){toast('งานนี้ไม่มีข้อมูลเส้นทาง');return}
+    TM.viewing={pts:pts.map(function(p){return [p[0],p[1],0]}),start:{lat:pts[0][0],lng:pts[0][1]},end:{lat:pts[pts.length-1][0],lng:pts[pts.length-1][1]}};
+    $('#t-view-txt').textContent='กำลังดูเส้นทางย้อนหลัง · '+t.driver+' '+fmtTime(t.start);$('#t-view').hidden=false;
+    drawTrip();
+    try{$('#tmap').scrollIntoView({behavior:'smooth',block:'center'})}catch(e){}
+  }).catch(function(x){toast(x.message)});
+}
+function resumeTrip(){
+  pauseTracking();
+  var mine=TRIPS.filter(function(t){return t.status==='open'&&t.userId===me.id})[0],saved=null;
+  try{saved=JSON.parse(localStorage.getItem(TRKEY)||'null')}catch(e){}
+  TR=blankTR();
+  if(!mine){if(saved&&saved.userId===me.id){try{localStorage.removeItem(TRKEY)}catch(e){}}renderTrip();return}
+  TR.active=true;TR.id=mine.id;TR.vehicleId=mine.vehicleId;TR.userId=me.id;TR.startedAt=mine.start;TR.odo0=mine.odoStart;TR.dest=mine.dest||'';
+  TR.nogps=mine.startLat==null;TR.startLL=TR.nogps?null:{lat:mine.startLat,lng:mine.startLng};
+  if(saved&&saved.id===mine.id&&saved.userId===me.id){
+    TR.pts=saved.pts||[];TR.km=saved.km||0;TR.gaps=saved.gaps||0;TR.finishing=!!saved.finishing;
+    var l=TR.pts[TR.pts.length-1];
+    if(l){TR.last={lat:l[0],lng:l[1],t:l[2]};TR.cur={lat:l[0],lng:l[1]};if(SIM){SIMC.lat=l[0];SIMC.lng=l[1]}}
+  }else if(!TR.nogps){TR.partial=true}
+  startTracking();persistTrip();renderTrip();
+}
+function initTrip(){
+  $('#t-veh').addEventListener('change',setTripOdo);
+  $('#t-start').addEventListener('click',function(){startTrip(false)});
+  $('#t-nogps').addEventListener('click',function(){startTrip(true)});
+  $('#t-finish').addEventListener('click',function(){TR.finishing=true;persistTrip();renderTrip()});
+  $('#tf-back').addEventListener('click',function(){TR.finishing=false;persistTrip();renderTrip()});
+  $('#tf-send').addEventListener('click',sendFinish);
+  $('#tf-odo').addEventListener('input',updateFinishCalc);
+  $('#t-cancel').addEventListener('click',cancelTrip);
+  $('#t-follow').addEventListener('click',function(){TM.follow=true;this.hidden=true;drawTrip()});
+  $('#t-view-close').addEventListener('click',function(){TM.viewing=null;$('#t-view').hidden=true;drawTrip()});
+  $('#t-hist').addEventListener('click',function(e){var b=e.target.closest('.vitem');if(b)viewRoute(+b.dataset.id)});
+  $('#trip-chip').addEventListener('click',function(){location.hash='#trip'});
+  document.addEventListener('visibilitychange',function(){if(!document.hidden&&TR.active&&!TR.wl)wake(true)});
+}
+
 /* ---------- router & init ---------- */
-var VIEWS=['dashboard','log','map','vehicles','reports','users','system'];
+var VIEWS=['trip','dashboard','log','map','vehicles','reports','users','system'];
 function route(){
   if(!me)return;
-  var h=location.hash.replace('#',''),v=VIEWS.indexOf(h)>=0?h:'dashboard';
-  if(ALLOWED[me.role].indexOf(v)<0)v='dashboard';
+  var h=location.hash.replace('#',''),v=VIEWS.indexOf(h)>=0?h:(me.role==='staff'?'trip':'dashboard');
+  if(ALLOWED[me.role].indexOf(v)<0)v=me.role==='staff'?'trip':'dashboard';
   VIEWS.forEach(function(n){$('#view-'+n).hidden=n!==v});
   $$('.tab').forEach(function(a){a.setAttribute('aria-selected',a.dataset.v===v?'true':'false')});
   if(v==='dashboard')renderDash();
@@ -1252,6 +1700,7 @@ function route(){
   if(v==='log'){onVehicle();recalc();renderVehRecent()}
   if(v==='map')startMap();else stopMap();
   if(v==='users')renderUsers();
+  if(v==='trip')showTrip();
 }
 $('#period-seg').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;state.p=b.dataset.p;state.sel=null;$$('#period-seg button').forEach(function(x){x.setAttribute('aria-pressed',x===b)});renderDash()});
 $('#metric-seg').addEventListener('click',function(e){var b=e.target.closest('button');if(!b)return;state.m=b.dataset.m;$$('#metric-seg button').forEach(function(x){x.setAttribute('aria-pressed',x===b)});drawChart()});

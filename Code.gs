@@ -15,7 +15,9 @@
 var SCHEMA = {
   Vehicles: ['vehicle_id', 'name', 'plate', 'type', 'fuel_type', 'std_kmpl', 'tank_l', 'odo_start', 'is_main', 'active'],
   FuelLogs: ['log_id', 'date', 'vehicle_id', 'driver', 'odo_start', 'odo_end', 'liters', 'price_per_l', 'trips', 'note', 'created_by', 'created_at'],
-  Users: ['user_id', 'name', 'role', 'pin_hash', 'salt', 'active', 'pin_changed_at', 'created_at']
+  Users: ['user_id', 'name', 'role', 'pin_hash', 'salt', 'active', 'pin_changed_at', 'created_at'],
+  Trips: ['trip_id', 'vehicle_id', 'driver', 'user_id', 'start_time', 'end_time', 'start_lat', 'start_lng', 'end_lat', 'end_lng',
+    'gps_km', 'odo_start', 'odo_end', 'est_liters', 'points', 'gaps', 'route', 'dest', 'note', 'status', 'created_at']
 };
 var SUP_ONLY = ['saveVehicle', 'deleteVehicle', 'addUser', 'setUserActive', 'resetUserPin', 'deleteUser'];
 var TOKEN_TTL = 21600;   // วินาที (6 ชั่วโมง คือค่าสูงสุดของ CacheService)
@@ -36,6 +38,8 @@ function setup() {
   });
   var logs = ss.getSheetByName('FuelLogs');
   logs.getRange(2, 2, Math.max(1, logs.getMaxRows() - 1), 1).setNumberFormat('@');
+  var trips = ss.getSheetByName('Trips');
+  trips.getRange(2, 5, Math.max(1, trips.getMaxRows() - 1), 2).setNumberFormat('@'); // start_time, end_time
 
   var props = PropertiesService.getScriptProperties();
   if (!props.getProperty('PIN_PEPPER')) {
@@ -44,7 +48,7 @@ function setup() {
 
   if (_rows('Vehicles').length === 0) {
     _append('Vehicles', {
-      vehicle_id: 'v' + Date.now(), name: 'Honda PCX 125', plate: '', type: 'มอเตอร์ไซค์',
+      vehicle_id: _newId('v', 'Vehicles', 'vehicle_id'), name: 'Honda PCX 125', plate: '', type: 'มอเตอร์ไซค์',
       fuel_type: 'แก๊สโซฮอล์ 91', std_kmpl: 45, tank_l: 8, odo_start: 0, is_main: true, active: true
     });
   }
@@ -110,6 +114,10 @@ function _route(req) {
   switch (a) {
     case 'data': return _data(user);
     case 'addLog': return _addLog(user, req);
+    case 'startTrip': return _startTrip(user, req);
+    case 'finishTrip': return _finishTrip(user, req);
+    case 'cancelTrip': return _cancelTrip(user, req);
+    case 'tripRoute': return _tripRoute(req);
     case 'saveVehicle': return _saveVehicle(req);
     case 'deleteVehicle': return _deleteVehicle(req);
     case 'addUser': return _addUser(req);
@@ -179,6 +187,7 @@ function _data(user) {
     me: { id: user.user_id, name: user.name, role: user.role },
     vehicles: _vehicles(),
     logs: _logs(),
+    trips: _trips(),
     drivers: _drivers()
   };
   if (user.role === 'sup') out.users = _users();
@@ -243,6 +252,114 @@ function _addLog(user, p) {
   });
 }
 
+/* ================= งานปฏิบัติงาน (เริ่มงาน / จบงาน + GPS) ================= */
+
+function _ts(v) { return v instanceof Date ? v.getTime() : (Date.parse(String(v)) || 0); }
+
+function _num(v) {
+  if (v === '' || v === null || v === undefined) return null;
+  var n = Number(v);
+  return isFinite(n) ? n : null;
+}
+
+function _ll(lat, lng) {
+  lat = _num(lat); lng = _num(lng);
+  if (lat === null || lng === null) return { lat: '', lng: '' };
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) throw _err('พิกัดไม่ถูกต้อง');
+  return { lat: Math.round(lat * 1e6) / 1e6, lng: Math.round(lng * 1e6) / 1e6 };
+}
+
+function _tripOut(r) {
+  return {
+    id: Number(r.trip_id), vehicleId: r.vehicle_id, driver: String(r.driver), userId: r.user_id,
+    start: _ts(r.start_time), end: r.end_time === '' ? null : _ts(r.end_time),
+    startLat: _num(r.start_lat), startLng: _num(r.start_lng), endLat: _num(r.end_lat), endLng: _num(r.end_lng),
+    km: _num(r.gps_km), odoStart: Number(r.odo_start), odoEnd: _num(r.odo_end), estL: _num(r.est_liters),
+    points: Number(r.points) || 0, gaps: Number(r.gaps) || 0, dest: String(r.dest || ''), note: String(r.note || ''),
+    status: String(r.status)
+  };
+}
+
+/** งานที่ยังไม่จบ + งานที่จบแล้วใน 60 วันล่าสุด (ไม่ส่งเส้นทางมาด้วย ขอแยกด้วย tripRoute) */
+function _trips() {
+  var cutoff = Date.now() - 60 * 86400000;
+  return _rows('Trips').filter(function (r) {
+    return r.status === 'open' || (r.status === 'done' && _ts(r.start_time) >= cutoff);
+  }).map(_tripOut);
+}
+
+function _findTrip(id) {
+  return _rows('Trips').filter(function (r) { return Number(r.trip_id) === Number(id); })[0];
+}
+
+function _startTrip(user, p) {
+  var t = p.trip || {};
+  var odo = Number(t.odoStart);
+  if (!(isFinite(odo) && odo >= 0)) throw _err('กรอกเลขไมล์เริ่มต้น');
+  var pos = _ll(t.lat, t.lng);
+  return _withLock(function () {
+    var v = _rows('Vehicles').filter(function (x) { return x.vehicle_id === t.vehicleId && _bool(x.active); })[0];
+    if (!v) throw _err('ไม่พบยานพาหนะนี้');
+    var rows = _rows('Trips'), open = rows.filter(function (r) { return r.status === 'open'; });
+    if (open.some(function (r) { return r.user_id === user.user_id; })) throw _err('คุณมีงานที่ยังไม่จบอยู่แล้ว');
+    var busy = open.filter(function (r) { return r.vehicle_id === v.vehicle_id; })[0];
+    if (busy) throw _err('รถคันนี้มีงานที่ยังไม่จบ (ผู้ขับ ' + busy.driver + ')');
+    var id = 1;
+    rows.forEach(function (r) { id = Math.max(id, Number(r.trip_id) + 1); });
+    _append('Trips', {
+      trip_id: id, vehicle_id: v.vehicle_id, driver: user.name, user_id: user.user_id,
+      start_time: new Date().toISOString(), start_lat: pos.lat, start_lng: pos.lng, odo_start: odo,
+      dest: _txt(t.dest, 120), status: 'open', created_at: new Date().toISOString()
+    });
+    return { trip: _tripOut(_findTrip(id)) };
+  });
+}
+
+function _finishTrip(user, p) {
+  var t = p.trip || {}, id = Number(t.id);
+  var odoEnd = Number(t.odoEnd), km = _num(t.gpsKm), pos = _ll(t.lat, t.lng);
+  var route = String(t.route || '');
+  if (route.length > 20000 || !/^[\x3f-\x7e]*$/.test(route)) route = '';
+  var points = Math.max(0, Math.round(Number(t.points) || 0)), gaps = Math.max(0, Math.round(Number(t.gaps) || 0));
+  if (km !== null && !(km >= 0 && km <= 3000)) throw _err('ระยะทางจาก GPS ไม่ถูกต้อง');
+  return _withLock(function () {
+    var row = _findTrip(id);
+    if (!row || row.status !== 'open') throw _err('ไม่พบงานที่กำลังทำอยู่นี้ (อาจถูกจบหรือยกเลิกไปแล้ว)');
+    if (row.user_id !== user.user_id && user.role !== 'sup') throw _err('งานนี้เป็นของผู้ขับคนอื่น');
+    var odoStart = Number(row.odo_start);
+    if (!(isFinite(odoEnd) && odoEnd >= odoStart)) throw _err('เลขไมล์สิ้นสุดต้องไม่น้อยกว่าเลขไมล์เริ่มต้น');
+    var veh = _rows('Vehicles').filter(function (v) { return v.vehicle_id === row.vehicle_id; })[0];
+    var used = (km !== null && km > 0) ? km : (odoEnd - odoStart);
+    var std = veh ? Number(veh.std_kmpl) : 0;
+    var est = std > 0 ? Math.round(used / std * 100) / 100 : 0;
+    // เวลาจบ: ใช้เวลาจากเครื่องถ้าสมเหตุสมผล (กรณีส่งช้าเพราะไม่มีสัญญาณ) ไม่เช่นนั้นใช้เวลาเซิร์ฟเวอร์
+    var now = Date.now(), end = Number(t.endTime);
+    if (!(end >= _ts(row.start_time) && end <= now + 60000)) end = now;
+    _update('Trips', row._row, {
+      end_time: new Date(end).toISOString(), end_lat: pos.lat, end_lng: pos.lng,
+      gps_km: km === null ? '' : Math.round(km * 100) / 100, odo_end: odoEnd, est_liters: est,
+      points: points, gaps: gaps, route: route, note: _txt(t.note, 200), status: 'done'
+    });
+    return { trip: _tripOut(_findTrip(id)) };
+  });
+}
+
+function _cancelTrip(user, p) {
+  return _withLock(function () {
+    var row = _findTrip(p.id);
+    if (!row || row.status !== 'open') throw _err('ไม่พบงานที่กำลังทำอยู่นี้');
+    if (row.user_id !== user.user_id && user.role !== 'sup') throw _err('งานนี้เป็นของผู้ขับคนอื่น');
+    _update('Trips', row._row, { status: 'cancelled', end_time: new Date().toISOString() });
+    return {};
+  });
+}
+
+function _tripRoute(p) {
+  var row = _findTrip(p.id);
+  if (!row) throw _err('ไม่พบงานนี้');
+  return { route: String(row.route || '') };
+}
+
 /* ================= ยานพาหนะ (หัวหน้างาน) ================= */
 
 function _saveVehicle(p) {
@@ -262,7 +379,7 @@ function _saveVehicle(p) {
       if (!target) throw _err('ไม่พบยานพาหนะนี้');
       _update('Vehicles', target._row, rec);
     } else {
-      id = 'v' + Date.now();
+      id = _newId('v', 'Vehicles', 'vehicle_id');
       rec.vehicle_id = id;
       rec.active = true;
       _append('Vehicles', rec);
@@ -388,7 +505,7 @@ function _newPin() {
 function _createUser(name, role, pin) {
   var salt = Utilities.getUuid();
   _append('Users', {
-    user_id: 'u' + Date.now(), name: name, role: role, pin_hash: _hash(pin, salt), salt: salt,
+    user_id: _newId('u', 'Users', 'user_id'), name: name, role: role, pin_hash: _hash(pin, salt), salt: salt,
     active: true, pin_changed_at: Date.now(), created_at: new Date().toISOString()
   });
 }
@@ -442,6 +559,15 @@ function _dstr(v) {
 function _txt(s, max) {
   s = String(s === undefined || s === null ? '' : s).trim().substring(0, max);
   return /^[=+\-@]/.test(s) ? ' ' + s : s;
+}
+
+/** รหัสประจำตัวที่ไม่ซ้ำกับแถวเดิม (กันสองรายการที่สร้างในเสี้ยววินาทีเดียวกัน) */
+function _newId(prefix, sheet, col) {
+  var used = {};
+  _rows(sheet).forEach(function (r) { used[String(r[col])] = true; });
+  var id;
+  do { id = prefix + Date.now().toString(36) + Math.floor(Math.random() * 46656).toString(36); } while (used[id]);
+  return id;
 }
 
 function _err(msg, code) {
