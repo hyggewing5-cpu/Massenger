@@ -691,7 +691,7 @@ var TODAY=new Date();TODAY.setHours(0,0,0,0);
 /* ---------- ตั้งค่า ----------
    ค่า API_URL (ลิงก์ Web App ของ Apps Script) และ MAPS_KEY (คีย์ Google Maps) ตั้งในไฟล์ config.js
    ไม่ตั้ง API_URL = โหมดสาธิต ใช้ข้อมูลตัวอย่างและเก็บในเบราว์เซอร์เครื่องนี้
-   ไม่ตั้ง MAPS_KEY = หน้าปฏิบัติงานแสดงแผนภาพเส้นทางแทนแผนที่ Google */
+   ไม่ตั้ง MAPS_KEY = ใช้แผนที่ OpenStreetMap (ฟรี) ในระบบจริง ส่วนโหมดสาธิตแสดงแผนภาพเส้นทาง */
 var API_URL=(window.FUELLOG_CONFIG&&window.FUELLOG_CONFIG.API_URL)||'';
 var MAPS_KEY=(window.FUELLOG_CONFIG&&window.FUELLOG_CONFIG.MAPS_KEY)||'';
 var LIVE=!!API_URL;
@@ -1341,7 +1341,7 @@ var SIM=!LIVE||/[?&]sim=1/.test(location.search);
 var SIMC={lat:13.7563,lng:100.5018,h:.6};
 function blankTR(){return {active:false,finishing:false,id:null,vehicleId:null,userId:null,startedAt:0,startLL:null,odo0:0,dest:'',pts:[],km:0,gaps:0,last:null,cur:null,acc:null,spd:0,watch:null,timer:null,sim:null,wl:null,partial:false,nogps:false}}
 var TR=blankTR();
-var TM={g:false,map:null,line:null,mk:{},follow:true,tried:false,viewing:null};
+var TM={g:false,l:false,map:null,line:null,mk:{},follow:true,tried:false,viewing:null};
 if(!LIVE){
   try{var stt=JSON.parse(localStorage.getItem(TSTORE)||'null');if(Array.isArray(stt))TRIPS=stt}catch(e){}
   if(!TRIPS.length){
@@ -1401,7 +1401,7 @@ function mapNote(t){var n=$('#t-note');n.textContent=t;n.hidden=!t}
 function initTripMap(){
   if(TM.tried){mapResize();drawTrip();return}
   TM.tried=true;
-  if(!MAPS_KEY){drawTrip();return}
+  if(!MAPS_KEY){if(LIVE)loadLeaflet();else drawTrip();return}
   window.__gmReady=function(){buildGoogle();drawTrip()};
   window.gm_authFailure=function(){TM.g=false;TM.map=null;TM.mk={};mapNote('Google Maps ไม่รับคีย์นี้ ตรวจว่าเปิดใช้ Maps JavaScript API และตั้งโดเมนที่อนุญาตตรงกับเว็บนี้ ตอนนี้แสดงแผนภาพเส้นทางแทน');drawTrip()};
   var sc=document.createElement('script');
@@ -1411,6 +1411,27 @@ function initTripMap(){
   document.head.appendChild(sc);
   drawTrip();
 }
+/* OpenStreetMap + Leaflet (ฟรี ไม่ต้องมีคีย์) ใช้เมื่อไม่ได้ใส่ MAPS_KEY ในระบบจริง */
+var LF_VER='1.9.4',LF_BASE='https://cdnjs.cloudflare.com/ajax/libs/leaflet/'+LF_VER+'/';
+function loadLeaflet(){
+  if(window.L&&L.map){buildLeaflet();drawTrip();return}
+  var css=document.createElement('link');css.rel='stylesheet';css.href=LF_BASE+'leaflet.min.css';document.head.appendChild(css);
+  var sc=document.createElement('script');sc.src=LF_BASE+'leaflet.min.js';sc.async=true;
+  sc.onload=function(){try{buildLeaflet()}catch(e){TM.l=false;TM.map=null;mapNote('เริ่มแผนที่ไม่ได้ ตอนนี้แสดงแผนภาพเส้นทางแทน')}drawTrip()};
+  sc.onerror=function(){mapNote('โหลดแผนที่ไม่ได้ (ตรวจอินเทอร์เน็ต) ตอนนี้แสดงแผนภาพเส้นทางแทน');drawTrip()};
+  document.head.appendChild(sc);
+  drawTrip();
+}
+function buildLeaflet(){
+  var box=$('#tmap'),c=TR.cur||TR.startLL||SIMC;box.innerHTML='';
+  TM.map=L.map(box,{center:[c.lat,c.lng],zoom:16,zoomControl:true,attributionControl:true});
+  var n=0;
+  var tl=L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>'}).addTo(TM.map);
+  tl.on('tileerror',function(){if(++n===4)mapNote('โหลดภาพแผนที่ไม่ครบ เส้นทางและระยะทางยังบันทึกตามปกติ')});
+  TM.line=L.polyline([],{color:cssVar('--accent','#0B6E8A'),weight:5,opacity:.95}).addTo(TM.map);
+  TM.map.on('dragstart',function(){TM.follow=false;$('#t-follow').hidden=false});
+  TM.mk={};TM.l=true;
+}
 function buildGoogle(){
   var box=$('#tmap'),c=TR.cur||TR.startLL||SIMC;box.innerHTML='';
   TM.map=new google.maps.Map(box,{center:{lat:c.lat,lng:c.lng},zoom:16,disableDefaultUI:true,zoomControl:true,gestureHandling:'greedy',clickableIcons:false});
@@ -1418,12 +1439,25 @@ function buildGoogle(){
   TM.map.addListener('dragstart',function(){TM.follow=false;$('#t-follow').hidden=false});
   TM.mk={};TM.g=true;
 }
-function mapResize(){if(TM.g&&TM.map)google.maps.event.trigger(TM.map,'resize')}
+function mapResize(){if(TM.g&&TM.map)google.maps.event.trigger(TM.map,'resize');else if(TM.l&&TM.map)TM.map.invalidateSize()}
 function setMk(k,pos,color,sc){
   if(!pos){if(TM.mk[k]){TM.mk[k].setMap(null);TM.mk[k]=null}return}
   var ll={lat:pos.lat,lng:pos.lng};
   if(!TM.mk[k])TM.mk[k]=new google.maps.Marker({map:TM.map,position:ll,icon:{path:google.maps.SymbolPath.CIRCLE,scale:sc,fillColor:color,fillOpacity:1,strokeColor:'#ffffff',strokeWeight:2}});
   else TM.mk[k].setPosition(ll);
+}
+function setMkL(k,pos,color,r){
+  if(!pos){if(TM.mk[k]){TM.map.removeLayer(TM.mk[k]);TM.mk[k]=null}return}
+  var ll=[pos.lat,pos.lng];
+  if(!TM.mk[k])TM.mk[k]=L.circleMarker(ll,{radius:r,fillColor:color,fillOpacity:1,color:'#ffffff',weight:2}).addTo(TM.map);
+  else TM.mk[k].setLatLng(ll);
+}
+function drawLeaflet(pts,cur,start,end){
+  var path=pts.map(function(p){return [p[0],p[1]]});
+  TM.line.setLatLngs(path);
+  setMkL('cur',cur,'#1a73e8',9);setMkL('start',start,'#1B7F52',7);setMkL('end',end,'#B3261E',7);
+  if(TM.viewing&&path.length)TM.map.fitBounds(L.latLngBounds(path),{padding:[40,40]});
+  else if(cur&&TM.follow)TM.map.panTo([cur.lat,cur.lng]);
 }
 function drawGoogle(pts,cur,start,end){
   var path=pts.map(function(p){return {lat:p[0],lng:p[1]}});
@@ -1435,7 +1469,7 @@ function drawGoogle(pts,cur,start,end){
 function drawSvg(pts,cur,start,end){
   var box=$('#tmap'),all=pts.map(function(p){return {lat:p[0],lng:p[1]}});
   [cur,start,end].forEach(function(p){if(p)all.push(p)});
-  if(!all.length){box.innerHTML='<div class="tmap-empty">'+(MAPS_KEY?'กำลังโหลดแผนที่…':'ยังไม่มีแผนที่พื้นหลัง (ยังไม่ได้ใส่คีย์ Google Maps) ระบบยังบันทึกเส้นทางและระยะทางตามปกติ')+'</div>';return}
+  if(!all.length){box.innerHTML='<div class="tmap-empty">'+((MAPS_KEY||LIVE)?'กำลังโหลดแผนที่…':'โหมดสาธิต: ยังไม่มีแผนที่พื้นหลัง ระบบจริงจะใช้แผนที่ OpenStreetMap')+'</div>';return}
   var kx=Math.cos(all[0].lat*Math.PI/180),W=600,H=360,pd=36;
   var P=function(p){return {x:p.lng*kx*111320,y:-p.lat*110540}},q=all.map(P);
   var xs=q.map(function(a){return a.x}),ys=q.map(function(a){return a.y});
@@ -1455,7 +1489,7 @@ function drawSvg(pts,cur,start,end){
 function drawTrip(){
   if(!$('#tmap'))return;
   var v=TM.viewing,pts=v?v.pts:TR.pts,cur=v?null:TR.cur,start=v?v.start:(TR.active?TR.startLL:null),end=v?v.end:null;
-  if(TM.g&&TM.map)drawGoogle(pts,cur,start,end);else drawSvg(pts,cur,start,end);
+  if(TM.g&&TM.map)drawGoogle(pts,cur,start,end);else if(TM.l&&TM.map)drawLeaflet(pts,cur,start,end);else drawSvg(pts,cur,start,end);
 }
 
 /* GPS */
